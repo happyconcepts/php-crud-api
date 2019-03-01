@@ -1508,11 +1508,11 @@ class ConditionsBuilder
         if ($condition instanceof NotCondition) {
             return $this->getNotConditionSql($condition, $arguments);
         }
-        if ($condition instanceof ColumnCondition) {
-            return $this->getColumnConditionSql($condition, $arguments);
-        }
         if ($condition instanceof SpatialCondition) {
             return $this->getSpatialConditionSql($condition, $arguments);
+        }
+        if ($condition instanceof ColumnCondition) {
+            return $this->getColumnConditionSql($condition, $arguments);
         }
         throw new \Exception('Unknown Condition: ' . get_class($condition));
     }
@@ -1649,7 +1649,7 @@ class ConditionsBuilder
             case 'pgsql':
                 $argument = $hasArgument ? 'ST_GeomFromText(?)' : '';
                 return "$functionName($column, $argument)=TRUE";
-            case 'sql_srv':
+            case 'sqlsrv':
                 $functionName = str_replace('ST_', 'ST', $functionName);
                 $argument = $hasArgument ? 'geometry::STGeomFromText(?,0)' : '';
                 return "$column.$functionName($argument)=1";
@@ -2624,6 +2624,7 @@ class TypeConverter
             'polygon' => 'geometry',
             'point' => 'geometry',
             'datetime' => 'timestamp',
+            'year' => 'integer',
             'enum' => 'varchar',
             'json' => 'clob',
         ],
@@ -3243,7 +3244,14 @@ class JwtAuthMiddleware extends Middleware
 {
     private function getVerifiedClaims(String $token, int $time, int $leeway, int $ttl, String $secret, array $requirements): array
     {
-        $algorithms = array('HS256' => 'sha256', 'HS384' => 'sha384', 'HS512' => 'sha512');
+        $algorithms = array(
+            'HS256' => 'sha256',
+            'HS384' => 'sha384',
+            'HS512' => 'sha512',
+            'RS256' => 'sha256',
+            'RS384' => 'sha384',
+            'RS512' => 'sha512',
+        );
         $token = explode('.', $token);
         if (count($token) < 3) {
             return array();
@@ -3259,10 +3267,30 @@ class JwtAuthMiddleware extends Middleware
         if (!isset($algorithms[$algorithm])) {
             return array();
         }
-        $hmac = $algorithms[$algorithm];
-        $signature = bin2hex(base64_decode(strtr($token[2], '-_', '+/')));
-        if ($signature != hash_hmac($hmac, "$token[0].$token[1]", $secret)) {
+        if (!empty($requirements['alg']) && !in_array($algorithm, $requirements['alg'])) {
             return array();
+        }
+        $hmac = $algorithms[$algorithm];
+        $signature = base64_decode(strtr($token[2], '-_', '+/'));
+        $data = "$token[0].$token[1]";
+        switch ($algorithm[0]) {
+            case 'H':
+                $hash = hash_hmac($hmac, $data, $secret, true);
+                if (function_exists('hash_equals')) {
+                    $equals = hash_equals($signature, $hash);
+                } else {
+                    $equals = $signature == $hash;
+                }
+                if (!$equals) {
+                    return array();
+                }
+                break;
+            case 'R':
+                $equals = openssl_verify($data, $signature, $secret, $hmac) == 1;
+                if (!$equals) {
+                    return array();
+                }
+                break;
         }
         $claims = json_decode(base64_decode(strtr($token[1], '-_', '+/')), true);
         if (!$claims) {
@@ -3270,11 +3298,7 @@ class JwtAuthMiddleware extends Middleware
         }
         foreach ($requirements as $field => $values) {
             if (!empty($values)) {
-                if ($field == 'alg') {
-                    if (!isset($header[$field]) || !in_array($header[$field], $values)) {
-                        return array();
-                    }
-                } else {
+                if ($field != 'alg') {
                     if (!isset($claims[$field]) || !in_array($claims[$field], $values)) {
                         return array();
                     }
@@ -3433,6 +3457,65 @@ class MultiTenancyMiddleware extends Middleware
                     $condition = $this->getCondition($tableName, $pairs);
                     VariableStore::set("multiTenancy.conditions.$tableName", $condition);
                 }
+            }
+        }
+        return $this->next->handle($request);
+    }
+}
+
+// file: src/Tqdev/PhpCrudApi/Middleware/PageLimitsMiddleware.php
+
+class PageLimitsMiddleware extends Middleware
+{
+    private $reflection;
+
+    public function __construct(Router $router, Responder $responder, array $properties, ReflectionService $reflection)
+    {
+        parent::__construct($router, $responder, $properties);
+        $this->reflection = $reflection;
+        $this->utils = new RequestUtils($reflection);
+    }
+
+    private function getMissingOrderParam(ReflectedTable $table): String
+    {
+        $pk = $table->getPk();
+        if (!$pk) {
+            $columnNames = $table->getColumnNames();
+            if (!$columnNames) {
+                return '';
+            }
+            return $columnNames[0];
+        }
+        return $pk->getName();
+    }
+
+    public function handle(Request $request): Response
+    {
+        $operation = $this->utils->getOperation($request);
+        if ($operation == 'list') {
+            $tableName = $request->getPathSegment(2);
+            $table = $this->reflection->getTable($tableName);
+            if ($table) {
+                $params = $request->getParams();
+                if (!isset($params['order']) || !$params['order']) {
+                    $params['order'] = array($this->getMissingOrderParam($table));
+                }
+                $maxPage = (int) $this->getProperty('pages', '100');
+                if (isset($params['page']) && $params['page']) {
+                    if (strpos($params['page'][0], ',') === false) {
+                        $params['page'] = array(min($params['page'][0], $maxPage));
+                    } else {
+                        list($page, $size) = explode(',', $params['page'][0], 2);
+                        $params['page'] = array(min($page, $maxPage) . ',' . $size);
+                    }
+                }
+                $maxSize = (int) $this->getProperty('records', '1000');
+                if (!isset($params['size']) || !$params['size']) {
+                    $params['size'] = array($maxSize);
+                } else {
+                    $params['size'] = array(min($params['size'][0], $maxSize));
+                }
+                $request->setParams($params);
             }
         }
         return $this->next->handle($request);
@@ -3615,6 +3698,7 @@ class OpenApiBuilder
         'decimal' => ['type' => 'string'],
         'float' => ['type' => 'number', 'format' => 'float'],
         'double' => ['type' => 'number', 'format' => 'double'],
+        'date' => ['type' => 'string', 'format' => 'date'],
         'time' => ['type' => 'string', 'format' => 'date-time'],
         'timestamp' => ['type' => 'string', 'format' => 'date-time'],
         'geometry' => ['type' => 'string'],
@@ -3968,7 +4052,7 @@ abstract class Condition
         $condition = new NoCondition();
         $parts = explode(',', $value, 3);
         if (count($parts) < 2) {
-            return null;
+            return $condition;
         }
         if (count($parts) < 3) {
             $parts[2] = '';
@@ -4321,7 +4405,7 @@ class FilterInfo
         if (isset($params[$key])) {
             foreach ($params[$key] as $filter) {
                 $condition = Condition::fromString($table, $filter);
-                if ($condition != null) {
+                if (($condition instanceof NoCondition) == false) {
                     $conditions->put($path, $condition);
                 }
             }
@@ -4439,7 +4523,7 @@ class PaginationInfo
         return $offset;
     }
 
-    public function getPageSize(array $params): int
+    private function getPageSize(array $params): int
     {
         $pageSize = $this->DEFAULT_PAGE_SIZE;
         if (isset($params['page'])) {
@@ -4462,6 +4546,23 @@ class PaginationInfo
             }
         }
         return $numberOfRows;
+    }
+
+    public function getPageLimit(array $params): int
+    {
+        $pageLimit = -1;
+        if ($this->hasPage($params)) {
+            $pageLimit = $this->getPageSize($params);
+        }
+        $resultSize = $this->getResultSize($params);
+        if ($resultSize >= 0) {
+            if ($pageLimit >= 0) {
+                $pageLimit = min($pageLimit, $resultSize);
+            } else {
+                $pageLimit = $resultSize;
+            }
+        }
+        return $pageLimit;
     }
 
 }
@@ -4650,11 +4751,11 @@ class RecordService
         $columnOrdering = $this->ordering->getColumnOrdering($table, $params);
         if (!$this->pagination->hasPage($params)) {
             $offset = 0;
-            $limit = $this->pagination->getResultSize($params);
+            $limit = $this->pagination->getPageLimit($params);
             $count = 0;
         } else {
             $offset = $this->pagination->getPageOffset($params);
-            $limit = $this->pagination->getPageSize($params);
+            $limit = $this->pagination->getPageLimit($params);
             $count = $this->db->selectCount($table, $condition);
         }
         $records = $this->db->selectAll($table, $columnNames, $condition, $columnOrdering, $offset, $limit);
@@ -5057,6 +5158,9 @@ class Api
                 case 'xsrf':
                     new XsrfMiddleware($router, $responder, $properties);
                     break;
+                case 'pageLimits':
+                    new PageLimitsMiddleware($router, $responder, $properties, $reflection);
+                    break;
                 case 'customization':
                     new CustomizationMiddleware($router, $responder, $properties, $reflection);
                     break;
@@ -5401,6 +5505,11 @@ class Request
     public function getParams(): array
     {
         return $this->params;
+    }
+
+    public function setParams(array $params) /*: void*/
+    {
+        $this->params = $params;
     }
 
     public function getBody() /*: ?array*/

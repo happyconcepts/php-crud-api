@@ -1,10 +1,8 @@
-# PHP-CRUD-API (v2)
+# PHP-CRUD-API
 
 Single file PHP 7 script that adds a REST API to a MySQL 5.6 InnoDB database. PostgreSQL 9.1 and MS SQL Server 2012 are fully supported. 
 
 NB: This is the [TreeQL](https://treeql.org) reference implementation in PHP.
-
-NB: Are you looking for v1? It is here: https://github.com/mevdschee/php-crud-api/tree/v1
 
 Related projects:
 
@@ -91,7 +89,7 @@ NB: The script appends the classes in alphabetical order (directories first).
 
 ## Limitations
 
-These limitation were also present in v1:
+These limitation and constrains apply:
 
   - Primary keys should either be auto-increment (from 1 to 2^53) or UUID
   - Composite primary or foreign keys are not supported
@@ -101,38 +99,30 @@ These limitation were also present in v1:
   
 ## Features
 
-These features match features in v1 (see branch "v1"):
+The following features are supported:
 
-  - [x] Single PHP file, easy to deploy.
-  - [x] Very little code, easy to adapt and maintain
-  - [ ] ~~Streaming data, low memory footprint~~
-  - [x] Supports POST variables as input (x-www-form-urlencoded)
-  - [x] Supports a JSON object as input
-  - [x] Supports a JSON array as input (batch insert)
-  - [ ] ~~Supports file upload from web forms (multipart/form-data)~~
-  - [ ] ~~Condensed JSON output: first row contains field names~~
-  - [x] Sanitize and validate input using callbacks
-  - [x] Permission system for databases, tables, columns and records
-  - [x] Multi-tenant database layouts are supported
-  - [x] Multi-domain CORS support for cross-domain requests
-  - [x] Support for reading joined results from multiple tables
-  - [x] Search support on multiple criteria
-  - [x] Pagination, seeking, sorting and column selection
-  - [x] Relation detection with nested results (belongsTo, hasMany and HABTM)
-  - [ ] ~~Relation "transforms" (of condensed JSON) for PHP and JavaScript~~
-  - [x] Atomic increment support via PATCH (for counters)
-  - [x] Binary fields supported with base64 encoding
-  - [x] Spatial/GIS fields and filters supported with WKT
-  - [ ] ~~Unstructured data support through JSON/JSONB~~
-  - [x] Generate API documentation using OpenAPI tools
-  - [x] Authentication via JWT token or username/password
-  - [ ] ~~SQLite support~~
-
- NB: No checkmark means: not yet implemented. Striken means: will not be implemented.
+  - Single PHP file, easy to deploy.
+  - Very little code, easy to adapt and maintain
+  - Supports POST variables as input (x-www-form-urlencoded)
+  - Supports a JSON object as input
+  - Supports a JSON array as input (batch insert)
+  - Sanitize and validate input using callbacks
+  - Permission system for databases, tables, columns and records
+  - Multi-tenant database layouts are supported
+  - Multi-domain CORS support for cross-domain requests
+  - Support for reading joined results from multiple tables
+  - Search support on multiple criteria
+  - Pagination, seeking, sorting and column selection
+  - Relation detection with nested results (belongsTo, hasMany and HABTM)
+  - Atomic increment support via PATCH (for counters)
+  - Binary fields supported with base64 encoding
+  - Spatial/GIS fields and filters supported with WKT
+  - Generate API documentation using OpenAPI tools
+  - Authentication via JWT token or username/password
 
 ### Extra Features
 
-These features are new and were not included in v1.
+These features are new in v2 and were not included in v1:
 
   - Does not reflect on every request (better performance)
   - Complex filters (with both "and" & "or") are supported
@@ -143,6 +133,19 @@ These features are new and were not included in v1.
   - Error reporting in JSON with corresponding HTTP status
   - Support for basic authentication and via auth provider (JWT)
   - Support for basic firewall functionality
+
+### Dropped features
+
+The following features of v1 were dropped in v2:
+
+  - ~~Streaming data, low memory footprint~~
+  - ~~Supports file upload from web forms (multipart/form-data)~~
+  - ~~Condensed JSON output: first row contains field names~~
+  - ~~Relation "transforms" (of condensed JSON) for PHP and JavaScript~~
+  - ~~Unstructured data support through JSON/JSONB~~
+  - ~~SQLite support~~
+
+NB: You can find v1 here: https://github.com/mevdschee/php-crud-api/tree/v1
 
 ## Middleware
 
@@ -158,6 +161,7 @@ You can enable the following middleware using the "middlewares" config parameter
 - "validation": Return input validation errors for custom rules
 - "sanitation": Apply input sanitation on create and update
 - "multiTenancy": Restricts tenants access in a multi-tenant scenario
+- "pageLimits": Restricts list operations to prevent high load and scraping
 - "customization": Provides handlers for request and response customization
 
 The "middlewares" config parameter is a comma separated list of enabled middlewares.
@@ -194,6 +198,8 @@ You can tune the middleware behavior using middleware specific configuration par
 - "validation.handler": Handler to implement validation rules for input values ("")
 - "sanitation.handler": Handler to implement sanitation rules for input values ("")
 - "multiTenancy.handler": Handler to implement simple multi-tenancy rules ("")
+- "pageLimits.pages": The maximum page number that a list operation allows ("100")
+- "pageLimits.records": The maximum number of records returned by a list operation ("1000")
 - "customization.beforeHandler": Handler to implement request customization ("")
 - "customization.afterHandler": Handler to implement response customization ("")
 
@@ -432,7 +438,7 @@ Output:
     }
 ```
 
-NB: Pages that are not ordered cannot be paginated.
+NB: Since pages that are not ordered cannot be paginated, pages will be ordered by primary key.
 
 ### Joins
 
@@ -516,8 +522,6 @@ This may lead to the following JSON data:
 
 You see that the "belongsTo" relationships are detected and the foreign key value is replaced by the referenced object.
 In case of "hasMany" and "hasAndBelongsToMany" the table name is used a new property on the object.
-
-NB: You need to create a foreign key constraint for the join to work.
 
 ### Batch operations
 
@@ -725,6 +729,16 @@ If your tenants are identified by the "customer_id" column you can use the follo
 This construct adds a filter requiring "customer_id" to be "12" to every operation (except for "create").
 It also sets the column "customer_id" on "create" to "12" and removes the column from any other write operation.
 
+### Prevent high load and scraping
+
+You may use the "pageLimits" middleware to limit the page number and the number records returned from a list operation. 
+If you want to allow no more than 10 pages with a maximum of 25 records each, you can specify:
+
+    'pageLimits.pages' => 10,
+    'pageLimits.records' => 25,
+
+NB: The maximum number of records is also applied when there is no page number specified in the request.
+
 ### Customization handlers
 
 You may use the "customization" middleware to modify request and response and implement any other functionality.
@@ -813,27 +827,29 @@ JavaScript does not support 64 bit integers. All numbers are stored as 64 bit fl
 
 The following errors may be reported:
 
-- 1000: Route not found (404 NOT FOUND)
-- 1001: Table not found (404 NOT FOUND)
-- 1002: Argument count mismatch (422 UNPROCESSABLE ENTITY)
-- 1003: Record not found (404 NOT FOUND)
-- 1004: Origin is forbidden (403 FORBIDDEN)
-- 1005: Column not found (404 NOT FOUND)
-- 1006: Table already exists (409 CONFLICT)
-- 1007: Column already exists (409 CONFLICT)
-- 1008: Cannot read HTTP message (422 UNPROCESSABLE ENTITY)
-- 1009: Duplicate key exception (409 CONFLICT)
-- 1010: Data integrity violation (409 CONFLICT)
-- 1011: Authentication required (401 UNAUTHORIZED)
-- 1012: Authentication failed (403 FORBIDDEN)
-- 1013: Input validation failed (422 UNPROCESSABLE ENTITY)
-- 1014: Operation forbidden (403 FORBIDDEN)
-- 1015: Operation not supported (405 METHOD NOT ALLOWED)
-- 1016: Temporary or permanently blocked (403 FORBIDDEN)
-- 1017: Bad or missing XSRF token (403 FORBIDDEN)
-- 1018: Only AJAX requests allowed (403 FORBIDDEN)
-- 1019: File upload failed (422 UNPROCESSABLE ENTITY)
-- 9999: Unknown error (500: INTERNAL SERVER ERROR)
+| Error | HTTP response code         | Message
+| ------| -------------------------- | --------------
+| 1000  | 404 Not found              | Route not found 
+| 1001  | 404 Not found              | Table not found 
+| 1002  | 422 Unprocessable entity   | Argument count mismatch 
+| 1003  | 404 Not found              | Record not found 
+| 1004  | 403 Forbidden              | Origin is forbidden 
+| 1005  | 404 Not found              | Column not found 
+| 1006  | 409 Conflict               | Table already exists 
+| 1007  | 409 Conflict               | Column already exists 
+| 1008  | 422 Unprocessable entity   | Cannot read HTTP message 
+| 1009  | 409 Conflict               | Duplicate key exception 
+| 1010  | 409 Conflict               | Data integrity violation 
+| 1011  | 401 Unauthorized           | Authentication required 
+| 1012  | 403 Forbidden              | Authentication failed 
+| 1013  | 422 Unprocessable entity   | Input validation failed 
+| 1014  | 403 Forbidden              | Operation forbidden 
+| 1015  | 405 Method not allowed     | Operation not supported 
+| 1016  | 403 Forbidden              | Temporary or permanently blocked 
+| 1017  | 403 Forbidden              | Bad or missing XSRF token 
+| 1018  | 403 Forbidden              | Only AJAX requests allowed 
+| 1019  | 403 Forbidden              | Pagination Forbidden 
+| 9999  | 500 Internal server error  | Unknown error 
 
 The following JSON structure is used:
 
@@ -879,7 +895,7 @@ server {
     }
 
     location ~ [^/]\.php(/|$) {
-        fastcgi_split_path_info ^(.+\.php)(/.*)$;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
         try_files $fastcgi_script_name =404;
         set $path_info $fastcgi_path_info;
         fastcgi_param PATH_INFO $path_info;
