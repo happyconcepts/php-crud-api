@@ -1,21 +1,31 @@
 <?php
+
 namespace Tqdev\PhpCrudApi;
 
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use Tqdev\PhpCrudApi\Cache\CacheFactory;
 use Tqdev\PhpCrudApi\Column\DefinitionService;
 use Tqdev\PhpCrudApi\Column\ReflectionService;
 use Tqdev\PhpCrudApi\Controller\CacheController;
 use Tqdev\PhpCrudApi\Controller\ColumnController;
+use Tqdev\PhpCrudApi\Controller\GeoJsonController;
+use Tqdev\PhpCrudApi\Controller\JsonResponder;
 use Tqdev\PhpCrudApi\Controller\OpenApiController;
 use Tqdev\PhpCrudApi\Controller\RecordController;
-use Tqdev\PhpCrudApi\Controller\Responder;
 use Tqdev\PhpCrudApi\Database\GenericDB;
+use Tqdev\PhpCrudApi\GeoJson\GeoJsonService;
 use Tqdev\PhpCrudApi\Middleware\AuthorizationMiddleware;
 use Tqdev\PhpCrudApi\Middleware\BasicAuthMiddleware;
 use Tqdev\PhpCrudApi\Middleware\CorsMiddleware;
 use Tqdev\PhpCrudApi\Middleware\CustomizationMiddleware;
+use Tqdev\PhpCrudApi\Middleware\DbAuthMiddleware;
 use Tqdev\PhpCrudApi\Middleware\FirewallMiddleware;
+use Tqdev\PhpCrudApi\Middleware\IpAddressMiddleware;
+use Tqdev\PhpCrudApi\Middleware\JoinLimitsMiddleware;
 use Tqdev\PhpCrudApi\Middleware\JwtAuthMiddleware;
+use Tqdev\PhpCrudApi\Middleware\ReconnectMiddleware;
 use Tqdev\PhpCrudApi\Middleware\MultiTenancyMiddleware;
 use Tqdev\PhpCrudApi\Middleware\PageLimitsMiddleware;
 use Tqdev\PhpCrudApi\Middleware\Router\SimpleRouter;
@@ -25,8 +35,9 @@ use Tqdev\PhpCrudApi\Middleware\XsrfMiddleware;
 use Tqdev\PhpCrudApi\OpenApi\OpenApiService;
 use Tqdev\PhpCrudApi\Record\ErrorCode;
 use Tqdev\PhpCrudApi\Record\RecordService;
+use Tqdev\PhpCrudApi\ResponseUtils;
 
-class Api
+class Api implements RequestHandlerInterface
 {
     private $router;
     private $responder;
@@ -42,10 +53,11 @@ class Api
             $config->getUsername(),
             $config->getPassword()
         );
-        $cache = CacheFactory::create($config);
+        $prefix = sprintf('phpcrudapi-%s-', substr(md5(__FILE__), 0, 8));
+        $cache = CacheFactory::create($config->getCacheType(), $prefix, $config->getCachePath());
         $reflection = new ReflectionService($db, $cache, $config->getCacheTime());
-        $responder = new Responder();
-        $router = new SimpleRouter($responder, $cache, $config->getCacheTime());
+        $responder = new JsonResponder();
+        $router = new SimpleRouter($config->getBasePath(), $responder, $cache, $config->getCacheTime(), $config->getDebug());
         foreach ($config->getMiddlewares() as $middleware => $properties) {
             switch ($middleware) {
                 case 'cors':
@@ -60,8 +72,17 @@ class Api
                 case 'jwtAuth':
                     new JwtAuthMiddleware($router, $responder, $properties);
                     break;
+                case 'dbAuth':
+                    new DbAuthMiddleware($router, $responder, $properties, $reflection, $db);
+                    break;
+                case 'reconnect':
+                    new ReconnectMiddleware($router, $responder, $properties, $reflection, $db);
+                    break;
                 case 'validation':
                     new ValidationMiddleware($router, $responder, $properties, $reflection);
+                    break;
+                case 'ipAddress':
+                    new IpAddressMiddleware($router, $responder, $properties, $reflection);
                     break;
                 case 'sanitation':
                     new SanitationMiddleware($router, $responder, $properties, $reflection);
@@ -77,6 +98,9 @@ class Api
                     break;
                 case 'pageLimits':
                     new PageLimitsMiddleware($router, $responder, $properties, $reflection);
+                    break;
+                case 'joinLimits':
+                    new JoinLimitsMiddleware($router, $responder, $properties, $reflection);
                     break;
                 case 'customization':
                     new CustomizationMiddleware($router, $responder, $properties, $reflection);
@@ -100,6 +124,11 @@ class Api
                     $openApi = new OpenApiService($reflection, $config->getOpenApiBase());
                     new OpenApiController($router, $responder, $openApi);
                     break;
+                case 'geojson':
+                    $records = new RecordService($db, $reflection);
+                    $geoJson = new GeoJsonService($reflection, $records);
+                    new GeoJsonController($router, $responder, $geoJson);
+                    break;
             }
         }
         $this->router = $router;
@@ -107,29 +136,51 @@ class Api
         $this->debug = $config->getDebug();
     }
 
-    public function handle(Request $request): Response
+    private function parseBody(string $body) /*: ?object*/
+    {
+        $first = substr($body, 0, 1);
+        if ($first == '[' || $first == '{') {
+            $object = json_decode($body);
+            $causeCode = json_last_error();
+            if ($causeCode !== JSON_ERROR_NONE) {
+                $object = null;
+            }
+        } else {
+            parse_str($body, $input);
+            foreach ($input as $key => $value) {
+                if (substr($key, -9) == '__is_null') {
+                    $input[substr($key, 0, -9)] = null;
+                    unset($input[$key]);
+                }
+            }
+            $object = (object) $input;
+        }
+        return $object;
+    }
+
+    private function addParsedBody(ServerRequestInterface $request): ServerRequestInterface
+    {
+        $body = $request->getBody();
+        if ($body->isReadable() && $body->isSeekable()) {
+            $contents = $body->getContents();
+            $body->rewind();
+            if ($contents) {
+                $parsedBody = $this->parseBody($contents);
+                $request = $request->withParsedBody($parsedBody);
+            }
+        }
+        return $request;
+    }
+
+    public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $response = null;
         try {
-            $response = $this->router->route($request);
+            $response = $this->router->route($this->addParsedBody($request));
         } catch (\Throwable $e) {
-            if ($e instanceof \PDOException) {
-                if (strpos(strtolower($e->getMessage()), 'duplicate') !== false) {
-                    return $this->responder->error(ErrorCode::DUPLICATE_KEY_EXCEPTION, '');
-                }
-                if (strpos(strtolower($e->getMessage()), 'default value') !== false) {
-                    return $this->responder->error(ErrorCode::DATA_INTEGRITY_VIOLATION, '');
-                }
-                if (strpos(strtolower($e->getMessage()), 'allow nulls') !== false) {
-                    return $this->responder->error(ErrorCode::DATA_INTEGRITY_VIOLATION, '');
-                }
-                if (strpos(strtolower($e->getMessage()), 'constraint') !== false) {
-                    return $this->responder->error(ErrorCode::DATA_INTEGRITY_VIOLATION, '');
-                }
-            }
             $response = $this->responder->error(ErrorCode::ERROR_NOT_FOUND, $e->getMessage());
             if ($this->debug) {
-                $response->addHeader('X-Debug-Info', 'Exception in ' . $e->getFile() . ' on line ' . $e->getLine());
+                $response = ResponseUtils::addExceptionHeaders($response, $e);
             }
         }
         return $response;

@@ -1,6 +1,6 @@
 PUT /columns/events/visitors
 
-{"pk":true}
+{"nullable":false,"pk":true}
 ===
 200
 Content-Type: application/json
@@ -12,9 +12,9 @@ GET /columns/events/visitors
 ===
 200
 Content-Type: application/json
-Content-Length: 46
+Content-Length: 45
 
-{"name":"visitors","type":"integer","pk":true}
+{"name":"visitors","type":"bigint","pk":true}
 ===
 GET /columns/events/id
 ===
@@ -38,9 +38,9 @@ GET /columns/events/visitors
 ===
 200
 Content-Type: application/json
-Content-Length: 36
+Content-Length: 35
 
-{"name":"visitors","type":"integer"}
+{"name":"visitors","type":"bigint"}
 ===
 PUT /columns/events/id
 

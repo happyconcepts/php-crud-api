@@ -52,7 +52,8 @@ CREATE TABLE categories (
 CREATE TABLE comments (
     id bigserial NOT NULL,
     post_id integer NOT NULL,
-    message character varying(255) NOT NULL
+    message character varying(255) NOT NULL,
+    category_id integer NOT NULL    
 );
 
 
@@ -98,7 +99,7 @@ CREATE TABLE users (
     id serial NOT NULL,
     username character varying(255) NOT NULL,
     password character varying(255) NOT NULL,
-    location geometry NULL
+    location geometry
 );
 
 --
@@ -118,8 +119,8 @@ CREATE TABLE countries (
 CREATE TABLE events (
     id serial NOT NULL,
     name character varying(255) NOT NULL,
-    datetime timestamp NOT NULL,
-    visitors integer NOT NULL
+    datetime timestamp,
+    visitors bigint
 );
 
 --
@@ -149,7 +150,8 @@ CREATE TABLE barcodes (
     id serial NOT NULL,
     product_id integer NOT NULL,
     hex character varying(255) NOT NULL,
-    bin bytea NOT NULL
+    bin bytea NOT NULL,
+    ip_address character varying(15)
 );
 
 --
@@ -185,17 +187,18 @@ CREATE TABLE "nopk" (
 
 INSERT INTO "categories" ("name", "icon") VALUES
 ('announcement',	NULL),
-('article',	NULL);
+('article',	NULL),
+('comment',	NULL);
 
 --
 -- Data for Name: comments; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO "comments" ("post_id", "message") VALUES
-(1,	'great'),
-(1,	'fantastic'),
-(2,	'thank you'),
-(2,	'awesome');
+INSERT INTO "comments" ("post_id", "message", "category_id") VALUES
+(1,	'great', 3),
+(1,	'fantastic', 3),
+(2,	'thank you', 3),
+(2,	'awesome', 3);
 
 --
 -- Data for Name: post_tags; Type: TABLE DATA; Schema: public; Owner: postgres
@@ -229,7 +232,7 @@ INSERT INTO "tags" ("name", "is_important") VALUES
 
 INSERT INTO "users" ("username", "password", "location") VALUES
 ('user1',	'pass1',	NULL),
-('user2',	'pass2',	NULL);
+('user2',	'$2y$10$cg7/nswxVZ0cmVIsMB/pVOh1OfcHScBJGq7Xu4KF9dFEQgRZ8HWe.',	NULL);
 
 --
 -- Data for Name: countries; Type: TABLE DATA; Schema: public; Owner: postgres
@@ -237,7 +240,16 @@ INSERT INTO "users" ("username", "password", "location") VALUES
 
 INSERT INTO "countries" ("name", "shape") VALUES
 ('Left',	ST_GeomFromText('POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))')),
-('Right',	ST_GeomFromText('POLYGON ((70 10, 80 40, 60 40, 50 20, 70 10))'));
+('Right',	ST_GeomFromText('POLYGON ((70 10, 80 40, 60 40, 50 20, 70 10))')),
+('Point',	ST_GeomFromText('POINT (30 10)')),
+('Line',	ST_GeomFromText('LINESTRING (30 10, 10 30, 40 40)')),
+('Poly1',	ST_GeomFromText('POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))')),
+('Poly2',	ST_GeomFromText('POLYGON ((35 10, 45 45, 15 40, 10 20, 35 10),(20 30, 35 35, 30 20, 20 30))')),
+('Mpoint',	ST_GeomFromText('MULTIPOINT (10 40, 40 30, 20 20, 30 10)')),
+('Mline',	ST_GeomFromText('MULTILINESTRING ((10 10, 20 20, 10 40),(40 40, 30 30, 40 20, 30 10))')),
+('Mpoly1',	ST_GeomFromText('MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)),((15 5, 40 10, 10 20, 5 10, 15 5)))')),
+('Mpoly2',	ST_GeomFromText('MULTIPOLYGON (((40 40, 20 45, 45 30, 40 40)),((20 35, 10 30, 10 10, 30 5, 45 20, 20 35),(30 20, 20 15, 20 25, 30 20)))')),
+('Gcoll',	ST_GeomFromText('GEOMETRYCOLLECTION(POINT(4 6),LINESTRING(4 6,7 10))'));
 
 --
 -- Data for Name: events; Type: TABLE DATA; Schema: public; Owner: postgres
@@ -257,8 +269,8 @@ INSERT INTO "products" ("name", "price", "properties", "created_at") VALUES
 -- Data for Name: barcodes; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-INSERT INTO "barcodes" ("product_id", "hex", "bin") VALUES
-(1,	'00ff01', E'\\x00ff01');
+INSERT INTO "barcodes" ("product_id", "hex", "bin", "ip_address") VALUES
+(1,	'00ff01', E'\\x00ff01',	'127.0.0.1');
 
 --
 -- Data for Name: kunsthåndværk; Type: TABLE DATA; Schema: public; Owner: postgres
@@ -388,6 +400,12 @@ ALTER TABLE ONLY "invisibles"
 
 CREATE INDEX comments_post_id_idx ON comments USING btree (post_id);
 
+--
+-- Name: comments_category_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace:
+--
+
+CREATE INDEX comments_category_id_idx ON comments USING btree (category_id);
+
 
 --
 -- Name: post_tags_post_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace:
@@ -444,6 +462,14 @@ CREATE INDEX "kunsthåndværk_user_id_idx" ON "kunsthåndværk" USING btree (use
 
 ALTER TABLE ONLY comments
     ADD CONSTRAINT comments_post_id_fkey FOREIGN KEY (post_id) REFERENCES posts(id);
+
+
+--
+-- Name: comments_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY comments
+    ADD CONSTRAINT comments_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories(id);
 
 
 --

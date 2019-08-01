@@ -9,41 +9,44 @@ class ColumnsBuilder
     private $driver;
     private $converter;
 
-    public function __construct(String $driver)
+    public function __construct(string $driver)
     {
         $this->driver = $driver;
         $this->converter = new ColumnConverter($driver);
     }
 
-    public function getOffsetLimit(int $offset, int $limit): String
+    public function getOffsetLimit(int $offset, int $limit): string
     {
         if ($limit < 0 || $offset < 0) {
             return '';
         }
         switch ($this->driver) {
-            case 'mysql':return "LIMIT $offset, $limit";
-            case 'pgsql':return "LIMIT $limit OFFSET $offset";
-            case 'sqlsrv':return "OFFSET $offset ROWS FETCH NEXT $limit ROWS ONLY";
+            case 'mysql':return " LIMIT $offset, $limit";
+            case 'pgsql':return " LIMIT $limit OFFSET $offset";
+            case 'sqlsrv':return " OFFSET $offset ROWS FETCH NEXT $limit ROWS ONLY";
         }
     }
 
-    private function quoteColumnName(ReflectedColumn $column): String
+    private function quoteColumnName(ReflectedColumn $column): string
     {
         return '"' . $column->getName() . '"';
     }
 
-    public function getOrderBy(ReflectedTable $table, array $columnOrdering): String
+    public function getOrderBy(ReflectedTable $table, array $columnOrdering): string
     {
+        if (count($columnOrdering) == 0) {
+            return '';
+        }
         $results = array();
         foreach ($columnOrdering as $i => list($columnName, $ordering)) {
             $column = $table->getColumn($columnName);
             $quotedColumnName = $this->quoteColumnName($column);
             $results[] = $quotedColumnName . ' ' . $ordering;
         }
-        return implode(',', $results);
+        return ' ORDER BY ' . implode(',', $results);
     }
 
-    public function getSelect(ReflectedTable $table, array $columnNames): String
+    public function getSelect(ReflectedTable $table, array $columnNames): string
     {
         $results = array();
         foreach ($columnNames as $columnName) {
@@ -55,7 +58,7 @@ class ColumnsBuilder
         return implode(',', $results);
     }
 
-    public function getInsert(ReflectedTable $table, array $columnValues): String
+    public function getInsert(ReflectedTable $table, array $columnValues): string
     {
         $columns = array();
         $values = array();
@@ -76,7 +79,7 @@ class ColumnsBuilder
         }
     }
 
-    public function getUpdate(ReflectedTable $table, array $columnValues): String
+    public function getUpdate(ReflectedTable $table, array $columnValues): string
     {
         $results = array();
         foreach ($columnValues as $columnName => $columnValue) {
@@ -88,7 +91,7 @@ class ColumnsBuilder
         return implode(',', $results);
     }
 
-    public function getIncrement(ReflectedTable $table, array $columnValues): String
+    public function getIncrement(ReflectedTable $table, array $columnValues): string
     {
         $results = array();
         foreach ($columnValues as $columnName => $columnValue) {

@@ -1,14 +1,14 @@
 <?php
+
 use Tqdev\PhpCrudApi\Api;
 use Tqdev\PhpCrudApi\Config;
 use Tqdev\PhpCrudApi\Database\GenericDB;
-use Tqdev\PhpCrudApi\Request;
+use Tqdev\PhpCrudApi\RequestFactory;
+use Tqdev\PhpCrudApi\ResponseUtils;
 
-spl_autoload_register(function ($class) {
-    include str_replace('\\', '/', "src\\$class.php");
-});
+require 'vendor/autoload.php';
 
-function runDir(Config $config, String $dir, array $matches, String $category): array
+function runDir(Config $config, string $dir, array $matches, string $category): array
 {
     $success = 0;
     $total = 0;
@@ -39,7 +39,7 @@ function runDir(Config $config, String $dir, array $matches, String $category): 
     return compact('total', 'success', 'failed');
 }
 
-function runTest(Config $config, String $file, String $category): int
+function runTest(Config $config, string $file, string $category): int
 {
     $title = ucwords(str_replace('_', ' ', $category)) . '/';
     $title .= ucwords(str_replace('_', ' ', substr(basename($file), 0, -4)));
@@ -62,7 +62,8 @@ function runTest(Config $config, String $file, String $category): int
         $in = $parts[$i];
         $exp = $parts[$i + 1];
         $api = new Api($config);
-        $out = $api->handle(Request::fromString($in));
+        $_SERVER['REMOTE_ADDR'] = 'TEST_IP';
+        $out = ResponseUtils::toString($api->handle(RequestFactory::fromString($in)));
         if ($recording) {
             $parts[$i + 1] = $out;
         } else if ($out != $exp) {
@@ -76,7 +77,32 @@ function runTest(Config $config, String $file, String $category): int
     return $success;
 }
 
-function loadFixture(String $dir, Config $config)
+function getDatabase(Config $config)
+{
+    if (!isset($config->getMiddlewares()['reconnect']['databaseHandler'])) {
+        return $config->getDatabase();
+    }
+    return $config->getMiddlewares()['reconnect']['databaseHandler']();
+}
+
+function getUsername(Config $config)
+{
+    if (!isset($config->getMiddlewares()['reconnect']['usernameHandler'])) {
+        return $config->getUsername();
+    }
+    return $config->getMiddlewares()['reconnect']['usernameHandler']();
+}
+
+function getPassword(Config $config)
+{
+    if (!isset($config->getMiddlewares()['reconnect']['passwordHandler'])) {
+        return $config->getPassword();
+    }
+    return $config->getMiddlewares()['reconnect']['passwordHandler']();
+}
+
+
+function loadFixture(string $dir, Config $config)
 {
     $driver = $config->getDriver();
     $filename = "$dir/fixtures/blog_$driver.sql";
@@ -85,9 +111,9 @@ function loadFixture(String $dir, Config $config)
         $config->getDriver(),
         $config->getAddress(),
         $config->getPort(),
-        $config->getDatabase(),
-        $config->getUsername(),
-        $config->getPassword()
+        getDatabase($config),
+        getUsername($config),
+        getPassword($config)
     );
     $pdo = $db->pdo();
     $file = preg_replace('/--.*$/m', '', $file);
@@ -111,7 +137,7 @@ function loadFixture(String $dir, Config $config)
     }
 }
 
-function run(array $drivers, String $dir, array $matches)
+function run(array $drivers, string $dir, array $matches)
 {
     foreach ($drivers as $driver) {
         if (isset($matches[0])) {

@@ -9,29 +9,32 @@ DROP TABLE IF EXISTS `categories`;
 CREATE TABLE `categories` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
-  `icon` blob NULL,
+  `icon` blob,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT INTO `categories` (`name`, `icon`) VALUES
 ('announcement',	NULL),
-('article',	NULL);
+('article',	NULL),
+('comment',	NULL);
 
 DROP TABLE IF EXISTS `comments`;
 CREATE TABLE `comments` (
-  `id` bigint(11) NOT NULL AUTO_INCREMENT,
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `post_id` int(11) NOT NULL,
   `message` varchar(255) NOT NULL,
+  `category_id` int(11) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `post_id` (`post_id`),
-  CONSTRAINT `comments_post_id_fkey` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`)
+  CONSTRAINT `comments_post_id_fkey` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`),
+  CONSTRAINT `comments_category_id_fkey` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-INSERT INTO `comments` (`post_id`, `message`) VALUES
-(1,	'great'),
-(1,	'fantastic'),
-(2,	'thank you'),
-(2,	'awesome');
+INSERT INTO `comments` (`post_id`, `message`, `category_id`) VALUES
+(1,	'great', 3),
+(1,	'fantastic', 3),
+(2,	'thank you', 3),
+(2,	'awesome', 3);
 
 DROP TABLE IF EXISTS `posts`;
 CREATE TABLE `posts` (
@@ -85,32 +88,41 @@ CREATE TABLE `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `username` varchar(255) NOT NULL,
   `password` varchar(255) NOT NULL,
-  `location` point NULL,
+  `location` point,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT INTO `users` (`username`, `password`, `location`) VALUES
-('user1',	'pass1', null),
-('user2',	'pass2', null);
+('user1',	'pass1', NULL),
+('user2',	'$2y$10$cg7/nswxVZ0cmVIsMB/pVOh1OfcHScBJGq7Xu4KF9dFEQgRZ8HWe.', NULL);
 
 DROP TABLE IF EXISTS `countries`;
 CREATE TABLE `countries` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
-  `shape` polygon NOT NULL,
+  `shape` geometry NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 INSERT INTO `countries` (`name`, `shape`) VALUES
 ('Left',	ST_GeomFromText('POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))')),
-('Right',	ST_GeomFromText('POLYGON ((70 10, 80 40, 60 40, 50 20, 70 10))'));
+('Right',	ST_GeomFromText('POLYGON ((70 10, 80 40, 60 40, 50 20, 70 10))')),
+('Point', ST_GeomFromText('POINT (30 10)')),
+('Line', ST_GeomFromText('LINESTRING (30 10, 10 30, 40 40)')),
+('Poly1', ST_GeomFromText('POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))')),
+('Poly2', ST_GeomFromText('POLYGON ((35 10, 45 45, 15 40, 10 20, 35 10),(20 30, 35 35, 30 20, 20 30))')),
+('Mpoint', ST_GeomFromText('MULTIPOINT (10 40, 40 30, 20 20, 30 10)')),
+('Mline', ST_GeomFromText('MULTILINESTRING ((10 10, 20 20, 10 40),(40 40, 30 30, 40 20, 30 10))')),
+('Mpoly1', ST_GeomFromText('MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)),((15 5, 40 10, 10 20, 5 10, 15 5)))')),
+('Mpoly2', ST_GeomFromText('MULTIPOLYGON (((40 40, 20 45, 45 30, 40 40)),((20 35, 10 30, 10 10, 30 5, 45 20, 20 35),(30 20, 20 15, 20 25, 30 20)))')),
+('Gcoll', ST_GeomFromText('GEOMETRYCOLLECTION(POINT(4 6),LINESTRING(4 6,7 10))'));
 
 DROP TABLE IF EXISTS `events`;
 CREATE TABLE `events` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
-  `datetime` datetime NOT NULL,
-  `visitors` int(11) NOT NULL,
+  `datetime` datetime,
+  `visitors` bigint(20),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -127,7 +139,7 @@ CREATE TABLE `products` (
   `price` decimal(10,2) NOT NULL,
   `properties` longtext NOT NULL,
   `created_at` datetime NOT NULL,
-  `deleted_at` datetime NULL,
+  `deleted_at` datetime,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -141,12 +153,13 @@ CREATE TABLE `barcodes` (
   `product_id` int(11) NOT NULL,
   `hex` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   `bin` blob NOT NULL,
+  `ip_address` varchar(15),
   PRIMARY KEY (`id`),
   CONSTRAINT `barcodes_product_id_fkey` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-INSERT INTO `barcodes` (`product_id`, `hex`, `bin`) VALUES
-(1, '00ff01', UNHEX('00ff01'));
+INSERT INTO `barcodes` (`product_id`, `hex`, `bin`, `ip_address`) VALUES
+(1, '00ff01', UNHEX('00ff01'), '127.0.0.1');
 
 DROP TABLE IF EXISTS `kunsthåndværk`;
 CREATE TABLE `kunsthåndværk` (
